@@ -86,6 +86,33 @@ const UI_HTML = `<!doctype html>
   .thumb img { max-height: 140px; border-radius: 8px; border: 1px solid var(--border); }
   footer { margin-top: 24px; font-size: 12px; color: var(--muted); text-align: center; }
   .hidden { display: none !important; }
+  /* NSFW & Age gate */
+  .check-row { display:flex; align-items:center; gap:8px; margin-top:14px; }
+  .check-row input[type=\"checkbox\"] { width:18px; height:18px; accent-color: var(--accent); cursor:pointer; }
+  .check-row label { margin:0; color: var(--text); font-size:13px; cursor:pointer; }
+  .hint { font-size:11px; color: var(--muted); margin-top:4px; }
+  .nsfw-badge { display:inline-block; font-size:10px; padding:2px 6px; border-radius:999px; background:rgba(255,92,124,0.15); color:var(--danger); border:1px solid rgba(255,92,124,0.3); margin-left:6px; vertical-align:middle; }
+  /* Age gate overlay */
+  .age-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.72); backdrop-filter: blur(6px); display:flex; align-items:center; justify-content:center; z-index:1000; padding:16px; }
+  .age-overlay.hidden { display:none !important; }
+  .age-modal { width:100%; max-width:440px; background:var(--panel); border:1px solid var(--border); border-radius:16px; padding:24px; box-shadow:0 20px 60px rgba(0,0,0,0.6); }
+  .age-modal h2 { margin:0 0 6px; font-size:20px; }
+  .age-modal p { margin:0; color:var(--muted); font-size:13px; line-height:1.5; }
+  .age-modal .warning { margin-top:14px; background:rgba(255,92,124,0.08); border:1px solid rgba(255,92,124,0.25); color:#ffb3c2; padding:10px 12px; border-radius:8px; font-size:12px; }
+  .age-field { margin-top:16px; }
+  .age-field label { font-size:13px; color:var(--text); }
+  .age-field input[type=\"date\"] { margin-top:6px; }
+  .age-check { margin-top:14px; display:flex; gap:10px; align-items:flex-start; }
+  .age-check input { width:18px; height:18px; margin-top:2px; flex-shrink:0; }
+  .age-check label { margin:0; color:var(--text); font-size:13px; line-height:1.4; }
+  .age-actions { display:flex; gap:10px; margin-top:18px; }
+  .age-actions button { flex:1; padding:11px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; border:1px solid var(--border); }
+  .btn-ghost { background:var(--panel-2); color:var(--text); }
+  .btn-ghost:hover { border-color: var(--muted); }
+  .btn-confirm { background: linear-gradient(90deg, var(--accent), var(--accent-2)); color:white; border:none; }
+  .btn-confirm:disabled { opacity:0.5; cursor:not-allowed; }
+  .age-err { margin-top:10px; color:var(--danger); font-size:12px; min-height:16px; }
+  .age-foot { margin-top:12px; font-size:11px; color:var(--muted); text-align:center; }
 </style>
 </head>
 <body>
@@ -127,6 +154,12 @@ const UI_HTML = `<!doctype html>
       <label for="t2i-seed">Seed <span style="color:var(--muted)">(optional, for reproducibility)</span></label>
       <input id="t2i-seed" type="number" placeholder="random" />
 
+      <div class="check-row">
+        <input type="checkbox" id="t2i-nsfw" />
+        <label for="t2i-nsfw">Enable NSFW / 18+ generation <span class="nsfw-badge">18+</span></label>
+      </div>
+      <div class="hint">If checked, you confirm you are 18+ and want to allow erotic / nude content. Requires age verification.</div>
+
       <button class="primary" id="t2i-btn">Generate image</button>
       <div class="status" id="t2i-status"></div>
 
@@ -155,6 +188,12 @@ const UI_HTML = `<!doctype html>
       <input id="i2i-strength" type="range" min="0.1" max="1.0" step="0.05" value="0.7"
              style="padding:0; background:transparent; border:none;" />
 
+      <div class="check-row">
+        <input type="checkbox" id="i2i-nsfw" />
+        <label for="i2i-nsfw">Enable NSFW / 18+ generation <span class="nsfw-badge">18+</span></label>
+      </div>
+      <div class="hint">If checked, you confirm you are 18+ and want to allow erotic / nude content. Requires age verification.</div>
+
       <button class="primary" id="i2i-btn">Transform image</button>
       <div class="status" id="i2i-status"></div>
 
@@ -171,8 +210,37 @@ const UI_HTML = `<!doctype html>
   <footer>
     Endpoints: <code style="color:var(--muted)">POST /generate</code> ·
     <code style="color:var(--muted)">POST /img2img</code> ·
-    <code style="color:var(--muted)">GET /models</code>
+    <code style="color:var(--muted)">GET /models</code><br/>
+    <span style="font-size:11px; margin-top:6px; display:inline-block;">NSFW content is only generated after 18+ age verification and is never shown to minors.</span>
   </footer>
+
+  <!-- Age gate modal -->
+  <div id="age-gate" class="age-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="age-title">
+    <div class="age-modal">
+      <h2 id="age-title">🔞 Age Verification Required</h2>
+      <p>This section can generate <strong>NSFW / adult (18+)</strong> imagery. You must confirm you are of legal adult age in your jurisdiction (18+).</p>
+      <div class="warning">⚠️ By continuing you confirm you are 18 years or older and consent to viewing and generating erotic / nude content. If you are under 18, please cancel.</div>
+
+      <div class="age-field">
+        <label for="age-dob">Date of birth (to verify 18+)</label>
+        <input id="age-dob" type="date" max="" />
+        <div class="hint">We check locally that you are 18+. Your birthdate is not sent to the server — only a verified flag is stored.</div>
+      </div>
+
+      <div class="age-check">
+        <input id="age-confirm" type="checkbox" />
+        <label for="age-confirm">I confirm I am <strong>18 years of age or older</strong> and I understand this tool may generate explicit adult content. I take responsibility for my prompts.</label>
+      </div>
+
+      <div class="age-err" id="age-err"></div>
+
+      <div class="age-actions">
+        <button class="btn-ghost" id="age-cancel">Cancel</button>
+        <button class="btn-confirm" id="age-confirm-btn" disabled>Confirm & Continue</button>
+      </div>
+      <div class="age-foot">Verification is stored locally for 30 days. You can clear it anytime from browser storage.<br/>Need help? Uncheck the NSFW box to generate safe content without verification.</div>
+    </div>
+  </div>
 
 <script>
 (function(){
@@ -200,17 +268,153 @@ const UI_HTML = `<!doctype html>
     container.classList.add('show');
   }
 
+  // ---- Age verification ----
+  const AGE_KEY = 'flux_age_verified_v1';
+  const ageGate = document.getElementById('age-gate');
+  const ageDob = document.getElementById('age-dob');
+  const ageConfirmChk = document.getElementById('age-confirm');
+  const ageConfirmBtn = document.getElementById('age-confirm-btn');
+  const ageCancel = document.getElementById('age-cancel');
+  const ageErr = document.getElementById('age-err');
+  // set max to today for date picker
+  try { ageDob.max = new Date().toISOString().split('T')[0]; } catch(_){}
+
+  let pendingAction = null; // function to call after verified
+
+  function isAgeVerified(){
+    try {
+      const raw = localStorage.getItem(AGE_KEY);
+      if (!raw) return false;
+      const obj = JSON.parse(raw);
+      if (!obj || !obj.verified) return false;
+      // 30 days expiry
+      const thirtyDays = 30*24*60*60*1000;
+      if (Date.now() - (obj.ts || 0) > thirtyDays) {
+        localStorage.removeItem(AGE_KEY);
+        return false;
+      }
+      // also check dob still says 18+
+      if (obj.dob) {
+        const d = new Date(obj.dob);
+        if (!isNaN(d)) {
+          const age = calcAge(d);
+          if (age < 18) return false;
+        }
+      }
+      return true;
+    } catch(e){ return false; }
+  }
+
+  function calcAge(dob){
+    const diff = Date.now() - dob.getTime();
+    const ageDt = new Date(diff);
+    return Math.abs(ageDt.getUTCFullYear() - 1970);
+  }
+
+  function updateAgeBtnState(){
+    const dobVal = ageDob.value;
+    let dobOk = false;
+    let err = '';
+    if (dobVal) {
+      const d = new Date(dobVal);
+      if (isNaN(d.getTime())) err = 'Please enter a valid date of birth.';
+      else if (d > new Date()) err = 'Date of birth cannot be in the future.';
+      else {
+        const age = calcAge(d);
+        if (age < 18) err = 'You must be 18 or older. Age calculated: ' + age;
+        else dobOk = true;
+      }
+    }
+    const chk = ageConfirmChk.checked;
+    ageErr.textContent = err;
+    // Require both dob valid and checkbox
+    ageConfirmBtn.disabled = !(dobOk && chk);
+    if (!dobVal && chk) {
+      ageErr.textContent = 'Please enter your date of birth to verify 18+.';
+      ageConfirmBtn.disabled = true;
+    }
+  }
+
+  ageDob.addEventListener('input', updateAgeBtnState);
+  ageDob.addEventListener('change', updateAgeBtnState);
+  ageConfirmChk.addEventListener('change', updateAgeBtnState);
+
+  function openAgeGate(onConfirm){
+    pendingAction = onConfirm;
+    ageErr.textContent = '';
+    // prefill if already verified? keep inputs
+    ageGate.classList.remove('hidden');
+    // focus
+    setTimeout(()=> ageDob.focus(), 50);
+    updateAgeBtnState();
+  }
+  function closeAgeGate(){
+    ageGate.classList.add('hidden');
+    pendingAction = null;
+  }
+  ageCancel.addEventListener('click', closeAgeGate);
+  ageGate.addEventListener('click', (e)=> { if (e.target === ageGate) closeAgeGate(); });
+
+  ageConfirmBtn.addEventListener('click', ()=>{
+    const dobVal = ageDob.value;
+    const d = new Date(dobVal);
+    const age = calcAge(d);
+    if (age < 18 || !ageConfirmChk.checked) {
+      ageErr.textContent = 'Verification failed. You must be 18+ and check the confirmation.';
+      return;
+    }
+    try {
+      localStorage.setItem(AGE_KEY, JSON.stringify({ verified:true, ts: Date.now(), dob: dobVal }));
+    } catch(_){}
+    closeAgeGate();
+    if (typeof pendingAction === 'function') {
+      const fn = pendingAction;
+      pendingAction = null;
+      fn();
+    }
+  });
+
+  function ensureAgeVerifiedOrPrompt(next){
+    if (isAgeVerified()) { next(); return; }
+    openAgeGate(next);
+  }
+
+  // if user checks NSFW box and not verified, prompt immediately
+  document.getElementById('t2i-nsfw').addEventListener('change', (e)=>{
+    if (e.target.checked && !isAgeVerified()) {
+      // revert until verified
+      e.target.checked = false;
+      openAgeGate(()=>{
+        document.getElementById('t2i-nsfw').checked = true;
+      });
+    }
+  });
+  document.getElementById('i2i-nsfw').addEventListener('change', (e)=>{
+    if (e.target.checked && !isAgeVerified()) {
+      e.target.checked = false;
+      openAgeGate(()=>{
+        document.getElementById('i2i-nsfw').checked = true;
+      });
+    }
+  });
+
+  function getVerifiedHeader(){
+    return isAgeVerified() ? 'true' : 'false';
+  }
+
   // ---- text to image ----
   const t2iBtn = document.getElementById('t2i-btn');
   const t2iStatus = document.getElementById('t2i-status');
-  t2iBtn.addEventListener('click', async () => {
+  async function doT2I(){
     const prompt = document.getElementById('t2i-prompt').value.trim();
     if (!prompt) { setStatus(t2iStatus, 'Please enter a prompt.', 'err'); return; }
+    const nsfw = document.getElementById('t2i-nsfw').checked;
     const body = {
       prompt,
       model: document.getElementById('t2i-model').value,
       width: parseInt(document.getElementById('t2i-width').value, 10) || 1024,
       height: parseInt(document.getElementById('t2i-height').value, 10) || 1024,
+      nsfw: nsfw
     };
     const seedRaw = document.getElementById('t2i-seed').value;
     if (seedRaw) body.seed = parseInt(seedRaw, 10);
@@ -220,12 +424,17 @@ const UI_HTML = `<!doctype html>
     try {
       const res = await fetch('/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Age-Verified': getVerifiedHeader() },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
         let msg = 'Request failed (' + res.status + ')';
         try { const e = await res.json(); if (e.error) msg = e.error; } catch(_){}
+        // if age gate required, clear local flag and show gate
+        if (res.status === 403 && msg.toLowerCase().includes('age')) {
+          try { localStorage.removeItem(AGE_KEY); } catch(_){}
+          throw new Error(msg + ' — please verify your age with the 18+ checkbox.');
+        }
         throw new Error(msg);
       }
       const blob = await res.blob();
@@ -242,6 +451,23 @@ const UI_HTML = `<!doctype html>
     } finally {
       t2iBtn.disabled = false;
     }
+  }
+
+  t2iBtn.addEventListener('click', async () => {
+    const wantsNsfw = document.getElementById('t2i-nsfw').checked;
+    if (wantsNsfw && !isAgeVerified()) {
+      ensureAgeVerifiedOrPrompt(doT2I);
+      return;
+    }
+    // also auto-detect nsfw prompt without checkbox? if keyword found, require gate
+    const prompt = document.getElementById('t2i-prompt').value.toLowerCase();
+    const nsfwKeywords = ['nsfw','nude','naked','porn','erotic','explicit','hentai','sex','boobs','breast','genital'];
+    const looksNsfw = nsfwKeywords.some(k => prompt.includes(k));
+    if (looksNsfw && !wantsNsfw && !isAgeVerified()) {
+      setStatus(t2iStatus, 'Your prompt looks like NSFW / adult content. Please check the 18+ box and verify age to continue.', 'err');
+      return;
+    }
+    await doT2I();
   });
 
   // ---- image to image ----
@@ -260,7 +486,10 @@ const UI_HTML = `<!doctype html>
     i2iDrop.querySelector('strong').textContent = file.name;
   }
 
-  i2iDrop.addEventListener('click', () => i2iFile.click());
+  i2iDrop.addEventListener('click', (e) => {
+    // avoid double trigger when clicking input
+    if (e.target.tagName !== 'INPUT') i2iFile.click();
+  });
   i2iFile.addEventListener('change', e => setFile(e.target.files[0]));
   ['dragenter','dragover'].forEach(ev => i2iDrop.addEventListener(ev, e => {
     e.preventDefault(); i2iDrop.classList.add('hover');
@@ -278,7 +507,8 @@ const UI_HTML = `<!doctype html>
 
   const i2iBtn = document.getElementById('i2i-btn');
   const i2iStatus = document.getElementById('i2i-status');
-  i2iBtn.addEventListener('click', async () => {
+
+  async function doI2I(){
     const prompt = document.getElementById('i2i-prompt').value.trim();
     if (!selectedFile) { setStatus(i2iStatus, 'Please choose a source image.', 'err'); return; }
     if (!prompt) { setStatus(i2iStatus, 'Please enter a prompt.', 'err'); return; }
@@ -287,14 +517,20 @@ const UI_HTML = `<!doctype html>
     fd.append('prompt', prompt);
     fd.append('image', selectedFile);
     fd.append('strength', strEl.value);
+    const nsfw = document.getElementById('i2i-nsfw').checked;
+    fd.append('nsfw', nsfw ? 'true' : 'false');
 
     i2iBtn.disabled = true;
     setStatus(i2iStatus, 'Transforming… (this can take a few seconds)');
     try {
-      const res = await fetch('/img2img', { method: 'POST', body: fd });
+      const res = await fetch('/img2img', { method: 'POST', body: fd, headers: { 'X-Age-Verified': getVerifiedHeader() } });
       if (!res.ok) {
         let msg = 'Request failed (' + res.status + ')';
         try { const e = await res.json(); if (e.error) msg = e.error; } catch(_){}
+        if (res.status === 403 && msg.toLowerCase().includes('age')) {
+          try { localStorage.removeItem(AGE_KEY); } catch(_){}
+          throw new Error(msg + ' — please verify your age with the 18+ checkbox.');
+        }
         throw new Error(msg);
       }
       const blob = await res.blob();
@@ -311,6 +547,22 @@ const UI_HTML = `<!doctype html>
     } finally {
       i2iBtn.disabled = false;
     }
+  }
+
+  i2iBtn.addEventListener('click', async () => {
+    const wantsNsfw = document.getElementById('i2i-nsfw').checked;
+    if (wantsNsfw && !isAgeVerified()) {
+      ensureAgeVerifiedOrPrompt(doI2I);
+      return;
+    }
+    const prompt = document.getElementById('i2i-prompt').value.toLowerCase();
+    const nsfwKeywords = ['nsfw','nude','naked','porn','erotic','explicit','hentai','sex','boobs','breast','genital'];
+    const looksNsfw = nsfwKeywords.some(k => prompt.includes(k));
+    if (looksNsfw && !wantsNsfw && !isAgeVerified()) {
+      setStatus(i2iStatus, 'Your prompt looks like NSFW / adult content. Please check the 18+ box and verify age to continue.', 'err');
+      return;
+    }
+    await doI2I();
   });
 })();
 </script>
@@ -324,7 +576,7 @@ export default {
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Age-Verified",
     };
 
     if (request.method === "OPTIONS") {
@@ -333,7 +585,6 @@ export default {
 
     // ---------- HTML UI ----------
     if (url.pathname === "/" && request.method === "GET") {
-      // Lightweight check: if caller wants JSON (e.g. curl/API client), return JSON health.
       const accept = request.headers.get("Accept") || "";
       if (accept.includes("application/json")) {
         return json(corsHeaders, {
@@ -405,6 +656,19 @@ export default {
           return json(corsHeaders, { error: "prompt must be <= 2000 characters" }, 400);
         }
 
+        // ---- NSFW / age gate ----
+        const wantsNsfw = body.nsfw === true || body.nsfw === "true" || body.allow_nsfw === true;
+        const looksNsfw = isNsfwPrompt(prompt);
+        const needsVerification = wantsNsfw || looksNsfw;
+        if (needsVerification) {
+          const verifiedHeader = (request.headers.get("X-Age-Verified") || "").toLowerCase();
+          const verifiedBody = body.age_verified === true || body.ageVerified === true || body.age_verified === "true";
+          const isVerified = verifiedHeader === "true" || verifiedBody;
+          if (!isVerified) {
+            return json(corsHeaders, { error: "Age verification required (18+). Please confirm you are 18+ to generate NSFW content. Send header X-Age-Verified: true or body {age_verified:true} after client-side verification." }, 403);
+          }
+        }
+
         const model = body.model || "@cf/black-forest-labs/flux-1-schnell";
         const width = clampInt(body.width, 256, 2048, 1024);
         const height = clampInt(body.height, 256, 2048, 1024);
@@ -417,64 +681,118 @@ export default {
           params.num_steps = clampInt(body.num_steps, 1, 20, undefined);
         }
 
-        const response = await env.AI.run(model, params);
-        const base64Image = response.image;
-        const imageData = Uint8Array.from(atob(base64Image), c => c.charCodeAt(0));
+        const aiResponse = await env.AI.run(model, params);
+        return await imageResponseFromAi(aiResponse, corsHeaders, model);
 
-        return new Response(imageData, {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "image/png",
-            "X-Model-Used": model,
-            "Cache-Control": "public, max-age=86400",
-          },
-        });
       } catch (error) {
-        return json(corsHeaders, { error: error.message }, 500);
+        // atob / base64 errors should be user-friendly
+        const msg = error && error.message ? error.message : String(error);
+        if (msg.includes("atob")) {
+          return json(corsHeaders, { error: "Image decoding failed: " + msg }, 500);
+        }
+        return json(corsHeaders, { error: msg }, 500);
       }
     }
 
     // ---------- Image-to-Image ----------
     if (url.pathname === "/img2img" && request.method === "POST") {
       try {
-        const formData = await request.formData();
-        const prompt = formData.get("prompt");
-        const imageFile = formData.get("image");
-        const strengthRaw = parseFloat(formData.get("strength") || "0.7");
-        const strength = Number.isFinite(strengthRaw) ? Math.max(0.1, Math.min(1, strengthRaw)) : 0.7;
+        const contentType = request.headers.get("Content-Type") || "";
+        let prompt, strength, wantsNsfw;
+
+        // Support both multipart/form-data (UI) and JSON (API) for flexibility
+        let imageBytes = null;
+        let imageB64 = null;
+
+        if (contentType.includes("application/json")) {
+          const body = await readJson(request);
+          prompt = body.prompt;
+          strength = parseFloat(body.strength || "0.7");
+          wantsNsfw = body.nsfw === true || body.nsfw === "true";
+          if (body.image_b64) imageB64 = body.image_b64;
+          else if (body.image) {
+            // could be array or base64 string
+            if (Array.isArray(body.image)) imageBytes = Uint8Array.from(body.image);
+            else if (typeof body.image === "string") imageB64 = body.image;
+          }
+        } else {
+          const formData = await request.formData();
+          prompt = formData.get("prompt");
+          const imageFile = formData.get("image");
+          const strengthRaw = parseFloat(formData.get("strength") || "0.7");
+          strength = Number.isFinite(strengthRaw) ? Math.max(0.1, Math.min(1, strengthRaw)) : 0.7;
+          const nsfwRaw = formData.get("nsfw");
+          wantsNsfw = nsfwRaw === "true" || nsfwRaw === true;
+
+          if (!prompt || typeof prompt !== "string") {
+            return json(corsHeaders, { error: "prompt is required" }, 400);
+          }
+          if (!imageFile || !(imageFile instanceof File)) {
+            return json(corsHeaders, { error: "image file is required (multipart/form-data field 'image')" }, 400);
+          }
+          if (imageFile.size > 10 * 1024 * 1024) {
+            return json(corsHeaders, { error: "image must be <= 10 MB" }, 400);
+          }
+          imageBytes = new Uint8Array(await imageFile.arrayBuffer());
+        }
 
         if (!prompt || typeof prompt !== "string") {
           return json(corsHeaders, { error: "prompt is required" }, 400);
         }
-        if (!imageFile || !(imageFile instanceof File)) {
-          return json(corsHeaders, { error: "image file is required (multipart/form-data)" }, 400);
+        if (!imageBytes && !imageB64) {
+          return json(corsHeaders, { error: "image file is required (multipart/form-data) or JSON field image_b64" }, 400);
         }
-        if (imageFile.size > 10 * 1024 * 1024) {
+        if (imageBytes && imageBytes.length > 10 * 1024 * 1024) {
           return json(corsHeaders, { error: "image must be <= 10 MB" }, 400);
         }
 
-        const imageBytes = new Uint8Array(await imageFile.arrayBuffer());
+        strength = Number.isFinite(strength) ? Math.max(0.1, Math.min(1, strength)) : 0.7;
+
+        // ---- NSFW / age gate for img2img as well ----
+        const looksNsfw = isNsfwPrompt(prompt);
+        if (wantsNsfw || looksNsfw) {
+          const verifiedHeader = (request.headers.get("X-Age-Verified") || "").toLowerCase();
+          // for multipart we can't have body JSON flag, but check form field if present
+          const isVerified = verifiedHeader === "true";
+          if (!isVerified) {
+            return json(corsHeaders, { error: "Age verification required (18+). Please confirm you are 18+ to generate NSFW content. Send header X-Age-Verified: true after client-side verification." }, 403);
+          }
+        }
+
         const model = "@cf/runwayml/stable-diffusion-v1-5-img2img";
 
-        const response = await env.AI.run(model, {
-          prompt,
-          image: Array.from(imageBytes),
-          strength,
-          num_steps: 20,
-        });
+        // Build params for the model - prefer image_b64 when we have base64 to avoid array size issues,
+        // else send as array of ints.
+        let params;
+        if (imageB64) {
+          // clean data URI prefix if present
+          let clean = imageB64.trim();
+          if (clean.startsWith("data:")) {
+            const comma = clean.indexOf(",");
+            if (comma !== -1) clean = clean.slice(comma + 1);
+          }
+          clean = clean.replace(/\s/g, "");
+          params = { prompt, image_b64: clean, strength, num_steps: 20 };
+        } else {
+          params = {
+            prompt,
+            image: Array.from(imageBytes),
+            strength,
+            num_steps: 20,
+          };
+          // Also provide image_b64 as fallback-friendly alternative (some bindings accept either)
+          // we keep both only if size reasonable? No, just send image array.
+        }
 
-        const base64Image = response.image;
-        const imageData = Uint8Array.from(atob(base64Image), c => c.charCodeAt(0));
+        const aiResponse = await env.AI.run(model, params);
+        return await imageResponseFromAi(aiResponse, corsHeaders, model);
 
-        return new Response(imageData, {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "image/png",
-            "X-Model-Used": model,
-          },
-        });
       } catch (error) {
-        return json(corsHeaders, { error: error.message }, 500);
+        const msg = error && error.message ? error.message : String(error);
+        if (msg.includes("atob")) {
+          return json(corsHeaders, { error: "Image decoding failed (atob): " + msg }, 500);
+        }
+        return json(corsHeaders, { error: msg }, 500);
       }
     }
 
@@ -493,6 +811,109 @@ function json(headers, body, status = 200) {
     status,
     headers: { ...headers, "Content-Type": "application/json" },
   });
+}
+
+// Robustly convert various AI image response formats into a PNG Response
+async function imageResponseFromAi(aiResponse, corsHeaders, model) {
+  // Case 1: ReadableStream (direct binary) - this is what stable-diffusion-v1-5-img2img returns per docs
+  if (aiResponse instanceof ReadableStream) {
+    return new Response(aiResponse, {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "image/png",
+        "X-Model-Used": model,
+      },
+    });
+  }
+  // Case 2: ArrayBuffer
+  if (aiResponse instanceof ArrayBuffer) {
+    return new Response(aiResponse, {
+      headers: { ...corsHeaders, "Content-Type": "image/png", "X-Model-Used": model, "Cache-Control": "public, max-age=86400" },
+    });
+  }
+  // Case 3: Uint8Array
+  if (aiResponse instanceof Uint8Array) {
+    return new Response(aiResponse, {
+      headers: { ...corsHeaders, "Content-Type": "image/png", "X-Model-Used": model, "Cache-Control": "public, max-age=86400" },
+    });
+  }
+  // Case 4: Response-like object with arrayBuffer?
+  if (aiResponse && typeof aiResponse.arrayBuffer === "function") {
+    try {
+      const buf = await aiResponse.arrayBuffer();
+      return new Response(buf, { headers: { ...corsHeaders, "Content-Type": "image/png", "X-Model-Used": model } });
+    } catch (_) {}
+  }
+  // Case 5: Blob
+  if (aiResponse && typeof Blob !== "undefined" && aiResponse instanceof Blob) {
+    return new Response(aiResponse, { headers: { ...corsHeaders, "Content-Type": "image/png", "X-Model-Used": model } });
+  }
+  // Case 6: JSON object with base64 field (FLUX models etc.)
+  if (aiResponse && typeof aiResponse === "object") {
+    // Some models return { image: "base64..." } ; others return { image: Uint8Array } ; handle both
+    let b64 = aiResponse.image || aiResponse.data || aiResponse.base64;
+    if (typeof b64 === "string" && b64.length > 0) {
+      // Strip data URI prefix if present e.g. data:image/png;base64,....
+      if (b64.startsWith("data:")) {
+        const commaIdx = b64.indexOf(",");
+        if (commaIdx !== -1) b64 = b64.slice(commaIdx + 1);
+      }
+      // sanitize: only keep valid base64 chars, trim whitespace, fix url-safe variant
+      b64 = b64.trim().replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+      // pad to multiple of 4
+      const pad = b64.length % 4;
+      if (pad) b64 += "=".repeat(4 - pad);
+      // validate before atob to give better error
+      if (!/^[A-Za-z0-9+/=]+$/.test(b64)) {
+        throw new Error("Invalid base64 characters in model output");
+      }
+      try {
+        const binaryString = atob(b64);
+        const img = Uint8Array.from(binaryString, (m) => m.codePointAt(0));
+        return new Response(img, {
+          headers: { ...corsHeaders, "Content-Type": "image/png", "X-Model-Used": model, "Cache-Control": "public, max-age=86400" },
+        });
+      } catch (e) {
+        throw new Error("atob() called with invalid base64-encoded data. (base64 length=" + b64.length + "): " + e.message);
+      }
+    }
+    // if image is Uint8Array inside object
+    if (b64 instanceof Uint8Array || b64 instanceof ArrayBuffer) {
+      const buf = b64 instanceof ArrayBuffer ? new Uint8Array(b64) : b64;
+      return new Response(buf, { headers: { ...corsHeaders, "Content-Type": "image/png", "X-Model-Used": model } });
+    }
+    // if array of ints inside object
+    if (Array.isArray(b64) && b64.length > 0 && typeof b64[0] === "number") {
+      return new Response(Uint8Array.from(b64), { headers: { ...corsHeaders, "Content-Type": "image/png", "X-Model-Used": model } });
+    }
+    // If the whole object is actually bytes as array? rare
+    if (Array.isArray(aiResponse) && aiResponse.length > 0 && typeof aiResponse[0] === "number") {
+      return new Response(Uint8Array.from(aiResponse), { headers: { ...corsHeaders, "Content-Type": "image/png", "X-Model-Used": model } });
+    }
+  }
+  // Fallback: string base64 direct
+  if (typeof aiResponse === "string" && aiResponse.length > 0) {
+    let b64 = aiResponse.trim();
+    if (b64.startsWith("data:")) {
+      const commaIdx = b64.indexOf(",");
+      if (commaIdx !== -1) b64 = b64.slice(commaIdx + 1);
+    }
+    b64 = b64.replace(/\s/g, "").replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.length % 4;
+    if (pad) b64 += "=".repeat(4 - pad);
+    const binaryString = atob(b64);
+    const img = Uint8Array.from(binaryString, (m) => m.codePointAt(0));
+    return new Response(img, { headers: { ...corsHeaders, "Content-Type": "image/png", "X-Model-Used": model } });
+  }
+
+  throw new Error("Unexpected AI response format: " + (typeof aiResponse) + " " + JSON.stringify(String(aiResponse).slice(0,200)));
+}
+
+function isNsfwPrompt(prompt) {
+  if (!prompt || typeof prompt !== "string") return false;
+  const p = prompt.toLowerCase();
+  const keywords = ["nsfw","nude","naked","porn","erotic","explicit","hentai","sex ", "sexy", "boobs","breast","nipple","genital","vagina","penis","orgy","bdsm","fetish","uncensored","adult","xxx","topless","bottomless"];
+  return keywords.some(k => p.includes(k));
 }
 
 // Read JSON safely, with a size cap to avoid abuse.
