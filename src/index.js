@@ -681,7 +681,7 @@ export default {
           params.num_steps = clampInt(body.num_steps, 1, 20, undefined);
         }
 
-        const aiResponse = await runAiImage(env, model, params);
+        const aiResponse = await generateImage(env, model, params);
         return await imageResponseFromAi(aiResponse, corsHeaders, model);
 
       } catch (error) {
@@ -797,7 +797,7 @@ export default {
           // we keep both only if size reasonable? No, just send image array.
         }
 
-        const aiResponse = await runAiImage(env, model, params);
+        const aiResponse = await generateImage(env, model, params);
         return await imageResponseFromAi(aiResponse, corsHeaders, model);
 
       } catch (error) {
@@ -977,6 +977,54 @@ async function runAiImage(env, model, params, retryCount = 1) {
       }
     }
     throw error;
+  }
+}
+
+// Optional external backend routing.
+//
+// Cloudflare Workers AI blocks genuinely explicit/NSFW image generation with
+// error 3030 and that filter cannot be disabled. To use an NSFW-capable
+// provider instead, set EXTERNAL_API_URL (and optionally EXTERNAL_API_KEY) in
+// wrangler.toml / Worker vars. When EXTERNAL_API_URL is set, every generation
+// is forwarded to that endpoint as a JSON POST:
+//   { "model": "<model id>", "params": { ...model params... } }
+// The endpoint should return either raw image bytes or JSON in one of the
+// shapes imageResponseFromAi() understands, e.g. { "image": "<base64>" }.
+function generateImage(env, model, params) {
+  if (env.EXTERNAL_API_URL) {
+    return runExternalImage(env, model, params);
+  }
+  return runAiImage(env, model, params);
+}
+
+async function runExternalImage(env, model, params) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000);
+  try {
+    const res = await fetch(env.EXTERNAL_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(env.EXTERNAL_API_KEY
+          ? { Authorization: "Bearer " + env.EXTERNAL_API_KEY }
+          : {}),
+      },
+      body: JSON.stringify({ model, params }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        "External image API error (" + res.status + "): " + (text || "").slice(0, 500)
+      );
+    }
+    const ct = res.headers.get("Content-Type") || "";
+    if (ct.includes("application/json")) {
+      return await res.json();
+    }
+    return await res.arrayBuffer();
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
