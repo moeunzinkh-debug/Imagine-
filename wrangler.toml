@@ -1,0 +1,10 @@
+name = "flux-image-api"
+main = "src/index.js"
+compatibility_date = "2026-08-09"
+
+[ai]
+binding = "AI"
+
+# Optional: Add API_KEY for authentication
+# [vars]
+# API_KEY = "your-secret-key-here"
