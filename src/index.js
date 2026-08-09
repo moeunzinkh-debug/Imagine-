@@ -681,7 +681,7 @@ export default {
           params.num_steps = clampInt(body.num_steps, 1, 20, undefined);
         }
 
-        const aiResponse = await env.AI.run(model, params);
+        const aiResponse = await runAiImage(env, model, params);
         return await imageResponseFromAi(aiResponse, corsHeaders, model);
 
       } catch (error) {
@@ -689,6 +689,19 @@ export default {
         const msg = error && error.message ? error.message : String(error);
         if (msg.includes("atob")) {
           return json(corsHeaders, { error: "Image decoding failed: " + msg }, 500);
+        }
+        if (isNsfwFilterError(msg)) {
+          return json(corsHeaders, {
+            error:
+              "Cloudflare's content-safety filter rejected this prompt (error 3030). " +
+              "This filter runs on Cloudflare's servers and CANNOT be disabled from this app — " +
+              "it applies to all Workers AI image models even when the 18+ / NSFW option is enabled. " +
+              "Genuinely explicit/NSFW image generation is not supported by Cloudflare's built-in models. " +
+              "If you hit this on an innocent prompt, reword it with more descriptive, neutral context " +
+              "(a single word like \"hamburger\" can be a false positive).",
+            code: 3030,
+            mitigation: "Add descriptive, non-explicit context to the prompt, or use a provider that supports the content you need.",
+          }, 422);
         }
         return json(corsHeaders, { error: msg }, 500);
       }
@@ -784,13 +797,25 @@ export default {
           // we keep both only if size reasonable? No, just send image array.
         }
 
-        const aiResponse = await env.AI.run(model, params);
+        const aiResponse = await runAiImage(env, model, params);
         return await imageResponseFromAi(aiResponse, corsHeaders, model);
 
       } catch (error) {
         const msg = error && error.message ? error.message : String(error);
         if (msg.includes("atob")) {
           return json(corsHeaders, { error: "Image decoding failed (atob): " + msg }, 500);
+        }
+        if (isNsfwFilterError(msg)) {
+          return json(corsHeaders, {
+            error:
+              "Cloudflare's content-safety filter rejected this prompt (error 3030). " +
+              "This filter runs on Cloudflare's servers and CANNOT be disabled from this app — " +
+              "it applies to all Workers AI image models even when the 18+ / NSFW option is enabled. " +
+              "Genuinely explicit/NSFW image generation is not supported by Cloudflare's built-in models. " +
+              "If you hit this on an innocent prompt, reword it with more descriptive, neutral context.",
+            code: 3030,
+            mitigation: "Add descriptive, non-explicit context to the prompt, or use a provider that supports the content you need.",
+          }, 422);
         }
         return json(corsHeaders, { error: msg }, 500);
       }
@@ -907,6 +932,52 @@ async function imageResponseFromAi(aiResponse, corsHeaders, model) {
   }
 
   throw new Error("Unexpected AI response format: " + (typeof aiResponse) + " " + JSON.stringify(String(aiResponse).slice(0,200)));
+}
+
+// Cloudflare's server-side NSFW content-safety filter rejects prompts with
+// error code 3030. This is enforced by Cloudflare on their infrastructure for
+// Workers AI image models and CANNOT be disabled from this app — there is no
+// opt-out parameter. This helper only recognizes the error so we can give a
+// clear message and attempt a false-positive mitigation.
+function isNsfwFilterError(msg) {
+  if (!msg) return false;
+  return msg.includes("3030") && /nsfw/i.test(msg);
+}
+
+// Best-effort rewrite that expands a terse prompt with descriptive, safe
+// context. Cloudflare's community reports that adding context dramatically
+// reduces *false-positive* 3030 rejections (e.g. the single word "hamburger"
+// or "cyberpunk cat"). This does NOT bypass the filter for genuinely explicit
+// content — that cannot be done from code.
+function softenPrompt(prompt) {
+  const p = (prompt || "").trim();
+  if (!p) return p;
+  // Leave prompts that already carry descriptive context untouched.
+  if (p.split(/\s+/).length >= 12) return p;
+  return p + ", highly detailed, professional photography, soft studio lighting, sharp focus, 8k quality";
+}
+
+// Run an image model, retrying once with a softened prompt when Cloudflare's
+// filter produces a false positive (error 3030). Any genuine 3030 rejection is
+// rethrown so the endpoint can return a clear explanation.
+async function runAiImage(env, model, params, retryCount = 1) {
+  try {
+    return await env.AI.run(model, params);
+  } catch (error) {
+    const msg = error && error.message ? error.message : String(error);
+    if (retryCount > 0 && isNsfwFilterError(msg)) {
+      const softened = softenPrompt(params.prompt);
+      if (softened !== params.prompt) {
+        try {
+          const resp = await env.AI.run(model, { ...params, prompt: softened });
+          return resp;
+        } catch (_) {
+          /* fall through and rethrow the original error */
+        }
+      }
+    }
+    throw error;
+  }
 }
 
 function isNsfwPrompt(prompt) {
