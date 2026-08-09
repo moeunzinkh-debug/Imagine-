@@ -47,6 +47,13 @@ npm run deploy
 
 បន្ទាប់ពី deploy ដំបូង ចូលទៅ **Cloudflare Dashboard** → **Workers & Pages** → ជ្រើសរើស Worker របស់អ្នក → **Settings** → **Bindings** → **Add** → ជ្រើសរើស **Workers AI** → Name: `AI` → **Save**។
 
+## ⚠️ NSFW និង error 3030
+
+កំហុស `3030: Input prompt contains NSFW content` គឺមកពី **Cloudflare Workers AI** នៅលើម៉ាស៊ីនមេរបស់គេ — **មិនមែនពីកម្មវិធីនេះទេ**។ Cloudflare អនុវត្ត filter សុវត្ថិភាពខ្លឹមសារដែល **មិនអាចបិទបានតាមរយៈកូដ** (មិនមានប៉ារ៉ាម៉ែត្រ opt-out)។ ការដាក់ check `NSFW` ក្នុង UI គឺគ្រប់គ្រងតែកម្មវិធីរបស់អ្នកប៉ុណ្ណោះ មិនអាចធ្វើឲ្យ Cloudflare អនុញ្ញាតខ្លឹមសារ NSFW ពិតប្រាកដបានឡើយ។
+
+- ប្រសិនបើ prompt ដែលគ្មានកំហុស (ដូចជា "hamburger") ត្រូវបានច្រានចេញ កម្មវិធីនឹងព្យាយាម retry ដោយស្វ័យប្រវត្តិជាមួយ prompt ដែលមានបរិបទបន្ថែមទៀត (ដើម្បីកាត់បន្ថយ false positive)។
+- បើត្រូវការបង្កើតរូបភាព NSFW ពិតប្រាកដ ត្រូវប្តូរទៅប្រើ **អ្នកផ្តល់សេវាខាងក្រៅ** (សូមមើល `wrangler.toml`)៖ កំណត់ `EXTERNAL_API_URL` និង (ស្រេចចិត្ត) `EXTERNAL_API_KEY` ក្នុង `[vars]`។ នៅពេលកំណត់ រាល់ `/generate` និង `/img2img` នឹងត្រូវបានបញ្ជូនទៅ endpoint នោះជា JSON POST `{ "model": "...", "params": { ... } }`។ Endpoint គួរត្រឡប់ជា raw image bytes ឬ JSON ដូចជា `{ "image": "<base64>" }`។ ទុក `EXTERNAL_API_URL` ទទេ ដើម្បីប្រើ Cloudflare ដដែល។
+
 ## 📡 API Endpoints
 
 ### GET `/`

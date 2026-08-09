@@ -8,3 +8,22 @@ binding = "AI"
 # Optional: Add API_KEY for authentication
 # [vars]
 # API_KEY = "your-secret-key-here"
+
+# ---------------------------------------------------------------------------
+# Optional: external NSFW-capable image backend.
+#
+# Cloudflare Workers AI blocks genuinely explicit/NSFW image generation with
+# error 3030 and that filter CANNOT be disabled. If you need NSFW generation,
+# point the app at an external provider by uncommenting [vars] and setting:
+#
+#   EXTERNAL_API_URL  = "https://your-nsfw-capable-provider.example.com/generate"
+#   EXTERNAL_API_KEY  = "your-bearer-token"   # optional
+#
+# When EXTERNAL_API_URL is set, every /generate and /img2img request is
+# forwarded to it as a JSON POST: { "model": "...", "params": { ... } }.
+# The endpoint should return raw image bytes, or JSON such as
+# { "image": "<base64>" }. Leave EXTERNAL_API_URL unset to use Cloudflare.
+# [vars]
+# EXTERNAL_API_URL = "https://your-nsfw-capable-provider.example.com/generate"
+# EXTERNAL_API_KEY = "your-bearer-token"
+
